@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>房间 - 潮汕升级</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      height: 100vh;
+    }
+    .room-info {
+      background: rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .room-id { font-size: 32px; color: #ffd700; font-weight: bold; }
+    .room-pwd { font-size: 20px; color: #ff6b6b; margin-top: 8px; }
+    .room-status { font-size: 14px; color: #aaa; margin-top: 8px; }
+    .players {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      margin-bottom: 16px;
+    }
+    .player-item {
+      width: 45%;
+      background: rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      border: 2px solid transparent;
+    }
+    .player-item.ready { border-color: #27ae60; background: rgba(39, 174, 96, 0.2); }
+    .player-avatar { font-size: 48px; margin-bottom: 8px; }
+    .player-name { font-size: 16px; font-weight: bold; }
+    .player-status { font-size: 12px; color: #aaa; margin-top: 6px; }
+    .player-ai { font-size: 12px; color: #4facfe; }
+    .player-host { font-size: 12px; color: #ffd700; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 24px;
+      font-size: 14px;
+      color: white;
+      cursor: pointer;
+    }
+    .btn-add { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .btn-invite { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .btn-copy { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+    .btn-start { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); }
+    .btn-exit { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); }
+    .player-count {
+      text-align: center;
+      color: #aaa;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+    .chat {
+      flex: 1;
+      background: rgba(0,0,0,0.3);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+    }
+    .msg { margin-bottom: 8px; font-size: 14px; }
+    .msg-name { color: #ffd700; margin-right: 8px; }
+    .chat-input {
+      display: flex;
+      padding: 12px;
+      gap: 8px;
+    }
+    .chat-input input {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 20px;
+      border: none;
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      font-size: 14px;
+    }
+    .btn-send {
+      padding: 10px 20px;
+      background: #667eea;
+      border: none;
+      border-radius: 20px;
+      color: white;
+      font-size: 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="room-info">
+      <div class="room-id">房间号: <span id="roomId"></span></div>
+      <div class="room-pwd" id="pwdSection">密码: <span id="password"></span></div>
+      <div class="room-status" id="statusText">等待玩家加入，或添加AI</div>
+    </div>
+
+    <div class="players" id="players"></div>
+
+    <div class="actions" id="hostActions">
+      <button class="btn btn-add" onclick="addAI()">➕ 添加AI</button>
+      <button class="btn btn-invite" onclick="inviteFriend()">📤 邀请好友</button>
+      <button class="btn btn-copy" onclick="copyRoomInfo()">📋 复制房间号</button>
+      <button class="btn btn-start" id="startBtn" onclick="startGame()" style="display:none;">🎮 开始游戏</button>
+      <button class="btn btn-exit" onclick="exitRoom()">退出房间</button>
+    </div>
+
+    <div class="actions" id="playerActions" style="display:none;">
+      <button class="btn btn-start" onclick="toggleReady()">准备</button>
+      <button class="btn btn-exit" onclick="exitRoom()">退出房间</button>
+    </div>
+
+    <div class="player-count" id="playerCount">当前人数: 1/4 (真人:1, AI:0)</div>
+
+    <div class="chat">
+      <div class="chat-messages" id="messages"></div>
+      <div class="chat-input">
+        <input type="text" id="inputMsg" placeholder="说点什么..." onkeypress="if(event.key==='Enter')sendMsg()">
+        <button class="btn-send" onclick="sendMsg()">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const isHost = urlParams.get('isHost') === 'true';
+    const roomId = urlParams.get('roomId') || '000000';
+    const password = urlParams.get('password') || '0000';
+    
+    let players = [
+      { id: 0, name: '玩家1', avatar: '😀', ready: false, isHost: true, isAI: false },
+      { id: 1, name: '等待加入...', avatar: '❓', ready: false, isHost: false, isAI: false },
+      { id: 2, name: '等待加入...', avatar: '❓', ready: false, isHost: false, isAI: false },
+      { id: 3, name: '等待加入...', avatar: '❓', ready: false, isHost: false, isAI: false }
+    ];
+    let isReady = false;
+    
+    document.getElementById('roomId').textContent = roomId;
+    document.getElementById('password').textContent = password;
+    
+    if (!isHost) {
+      document.getElementById('pwdSection').style.display = 'none';
+      document.getElementById('hostActions').style.display = 'none';
+      document.getElementById('playerActions').style.display = 'flex';
+      players[0].isHost = false;
+      // 把自己放在空位
+      const emptyIdx = players.findIndex(p => p.name === '等待加入...');
+      if (emptyIdx !== -1) {
+        players[emptyIdx] = { id: emptyIdx, name: '我', avatar: '😎', ready: false, isHost: false, isAI: false };
+      }
+    }
+    
+    function renderPlayers() {
+      const container = document.getElementById('players');
+      container.innerHTML = players.map((p, i) => `
+        <div class="player-item ${p.ready ? 'ready' : ''}">
+          <div class="player-avatar">${p.avatar}</div>
+          <div class="player-name">${p.name}</div>
+          <div class="player-status">${p.ready ? '✅ 已准备' : '⏳ 等待中'}</div>
+          ${p.isAI ? '<div class="player-ai">🤖 AI</div>' : ''}
+          ${p.isHost ? '<div class="player-host">👑 房主</div>' : ''}
+        </div>
+      `).join('');
+      
+      updatePlayerCount();
+      checkCanStart();
+    }
+    
+    function updatePlayerCount() {
+      const total = players.filter(p => p.name !== '等待加入...').length;
+      const real = players.filter(p => !p.isAI && p.name !== '等待加入...').length;
+      const ai = players.filter(p => p.isAI).length;
+      document.getElementById('playerCount').textContent = `当前人数: ${total}/4 (真人:${real}, AI:${ai})`;
+    }
+    
+    function checkCanStart() {
+      const allJoined = players.every(p => p.name !== '等待加入...');
+      const allReady = players.every(p => p.ready);
+      const canStart = allJoined && allReady && isHost;
+      document.getElementById('startBtn').style.display = canStart ? 'inline-block' : 'none';
+      if (allJoined && allReady) {
+        document.getElementById('statusText').textContent = '所有人已准备，可以开始';
+      }
+    }
+    
+    function addAI() {
+      if (!isHost) return;
+      const emptyIdx = players.findIndex(p => p.name === '等待加入...');
+      if (emptyIdx === -1) { alert('房间已满'); return; }
+      
+      const aiNames = ['AI小明', 'AI小红', 'AI小刚', 'AI小丽'];
+      const aiAvatars = ['🤖', '👾', '👽', '🎃'];
+      players[emptyIdx] = {
+        id: emptyIdx,
+        name: aiNames[emptyIdx] || `AI${emptyIdx}`,
+        avatar: aiAvatars[emptyIdx] || '🤖',
+        ready: true,
+        isHost: false,
+        isAI: true
+      };
+      renderPlayers();
+      addMessage('系统', `${players[emptyIdx].name} 加入房间（AI）`);
+    }
+    
+    function inviteFriend() {
+      const shareData = {
+        title: `潮汕升级邀请 - 房间号:${roomId}`,
+        text: `快来玩潮汕升级！房间号:${roomId} 密码:${password}`,
+        url: window.location.href
+      };
+      
+      if (navigator.share) {
+        navigator.share(shareData);
+      } else {
+        copyRoomInfo();
+      }
+    }
+    
+    function copyRoomInfo() {
+      const info = `潮汕升级邀请\n房间号: ${roomId}\n密码: ${password}\n链接: ${window.location.href}`;
+      navigator.clipboard.writeText(info).then(() => {
+        alert('已复制到剪贴板');
+      });
+    }
+    
+    function toggleReady() {
+      isReady = !isReady;
+      const me = players.find(p => p.name === '我');
+      if (me) me.ready = isReady;
+      renderPlayers();
+      addMessage('我', isReady ? '我准备好了' : '取消准备');
+    }
+    
+    function startGame() {
+      const gamePlayers = players.map(p => ({
+        id: p.id,
+        name: p.name,
+        avatar: p.avatar,
+        isAI: p.isAI,
+        team: p.id % 2
+      }));
+      
+      localStorage.setItem('currentGame', JSON.stringify({
+        players: gamePlayers,
+        roomId: roomId,
+        trumpRank: '2',
+        dealer: 0
+      }));
+      
+      window.location.href = `game.html?mode=room&roomId=${roomId}`;
+    }
+    
+    function exitRoom() {
+      if (confirm('确定要退出房间吗？')) {
+        window.location.href = 'index.html';
+      }
+    }
+    
+    function addMessage(name, text) {
+      const container = document.getElementById('messages');
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = `<span class="msg-name">${name}:</span>${text}`;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+    
+    function sendMsg() {
+      const input = document.getElementById('inputMsg');
+      const text = input.value.trim();
+      if (!text) return;
+      addMessage('我', text);
+      input.value = '';
+    }
+    
+    renderPlayers();
+    addMessage('系统', '欢迎来到潮汕升级！');
+  </script>
+</body>
+</html>
