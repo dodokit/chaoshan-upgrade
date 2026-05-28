@@ -1,4 +1,4 @@
-// 汕头升级核心游戏逻辑
+// 汕头升级核心游戏逻辑（潮汕80分）
 
 class Card {
   constructor(suit, rank) {
@@ -10,6 +10,11 @@ class Card {
     const suitMap = { 'spade': '♠', 'heart': '♥', 'club': '♣', 'diamond': '♦', 'joker': '' };
     const rankMap = { 'small': '小王', 'big': '大王' };
     return suitMap[this.suit] + (rankMap[this.rank] || this.rank);
+  }
+
+  // 克隆牌（用于比较）
+  clone() {
+    return new Card(this.suit, this.rank);
   }
 }
 
@@ -26,26 +31,31 @@ class Game {
     this.trumpSuit = null; // 主花色
     this.trumpRank = '2'; // 当前级牌
     this.currentPlayer = 0;
-    this.phase = 'DEAL'; // DEAL, BID, PLAY, SCORE
+    this.phase = 'DEAL'; // DEAL, BID, DISCARD, PLAY, SCORE
     this.scores = [0, 0]; // 两队分数
     this.level = ['2', '2']; // 两队当前级别
     this.dealer = 0; // 庄家
+    this.playedCards = []; // 已出牌记录（用于判断桌面K/A）
+    this.roundCards = []; // 当前轮出牌
+    this.firstSuit = null; // 本轮首家花色
+    this.kittyRevealed = []; // 亮明的底牌K/A
+    this.isKouDi = false; // 是否抠底
+    this.kouDiMultiplier = 1; // 抠底倍数
+    this.gameOver = false; // 游戏是否结束
   }
 
-  // 创建牌组（2副牌）
+  // 创建牌组（2副牌108张）
   createDeck() {
     this.deck = [];
     const suits = ['spade', 'heart', 'club', 'diamond'];
     const ranks = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
     
-    // 2副牌
     for (let d = 0; d < 2; d++) {
       for (let suit of suits) {
         for (let rank of ranks) {
           this.deck.push(new Card(suit, rank));
         }
       }
-      // 大小王
       this.deck.push(new Card('joker', 'small'));
       this.deck.push(new Card('joker', 'big'));
     }
@@ -66,45 +76,74 @@ class Game {
   deal() {
     this.createDeck();
     
-    // 每人25张
     for (let i = 0; i < 25; i++) {
       for (let p = 0; p < 4; p++) {
         this.players[p].hand.push(this.deck.pop());
       }
     }
     
-    // 底牌8张
     this.kitty = this.deck.splice(0, 8);
-    
     this.phase = 'BID';
     return this.players;
   }
 
-  // 叫主（亮出级牌，该牌的花色成为主花色）
+  // 叫主（报主）
   bid(playerId, card) {
     if (this.phase !== 'BID') return false;
     
-    // 检查玩家是否有这张牌
     const player = this.players[playerId];
     const hasCard = player.hand.some(c => c.suit === card.suit && c.rank === card.rank);
     
     if (!hasCard) return false;
-    
-    // 检查是否是当前级牌
     if (card.rank !== this.trumpRank) return false;
     
-    // 设置主牌：该牌的花色成为主花色
     this.trumpSuit = card.suit;
     this.dealer = playerId;
     
-    // 庄家拿底牌
     player.hand = player.hand.concat(this.kitty);
-    
     this.phase = 'DISCARD';
     return true;
   }
 
-  // 扣底（庄家扣8张回去）
+  // 翻底（无人报主时）
+  revealKitty() {
+    if (this.phase !== 'BID') return false;
+    
+    // 从底牌第一张开始翻，找到级牌
+    for (let i = 0; i < this.kitty.length; i++) {
+      const card = this.kitty[i];
+      if (card.rank === this.trumpRank) {
+        this.trumpSuit = card.suit;
+        this.dealer = 0; // 默认庄家为0号玩家（或按规则重新确定）
+        this.players[0].hand = this.players[0].hand.concat(this.kitty);
+        this.phase = 'DISCARD';
+        return { success: true, method: 'kitty_trump', card: card };
+      }
+    }
+    
+    // 底牌没有级牌，找最大牌（不计大小王）
+    let maxCard = null;
+    const rankOrder = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
+    
+    for (let card of this.kitty) {
+      if (card.suit === 'joker') continue;
+      if (!maxCard || rankOrder.indexOf(card.rank) > rankOrder.indexOf(maxCard.rank)) {
+        maxCard = card;
+      }
+    }
+    
+    if (maxCard) {
+      this.trumpSuit = maxCard.suit;
+      this.dealer = 0;
+      this.players[0].hand = this.players[0].hand.concat(this.kitty);
+      this.phase = 'DISCARD';
+      return { success: true, method: 'kitty_max', card: maxCard };
+    }
+    
+    return { success: false };
+  }
+
+  // 扣底
   discard(playerId, cards) {
     if (this.phase !== 'DISCARD') return false;
     if (playerId !== this.dealer) return false;
@@ -112,7 +151,6 @@ class Game {
     
     const player = this.players[playerId];
     
-    // 检查玩家有这些牌
     for (let card of cards) {
       const idx = player.hand.findIndex(c => c.suit === card.suit && c.rank === card.rank);
       if (idx === -1) return false;
@@ -120,8 +158,17 @@ class Game {
     }
     
     this.kitty = cards;
+    
+    // 亮明副牌K/A
+    this.kittyRevealed = [];
+    for (let card of cards) {
+      if (!this.isTrump(card) && (card.rank === 'K' || card.rank === 'A')) {
+        this.kittyRevealed.push(card);
+      }
+    }
+    
     this.phase = 'PLAY';
-    this.currentPlayer = (this.dealer + 1) % 4; // 庄家下家先出
+    this.currentPlayer = (this.dealer + 1) % 4;
     
     return true;
   }
@@ -134,64 +181,50 @@ class Game {
     return false;
   }
 
-  // 获取牌的排序权重（用于手牌排序显示）
+  // 获取牌的排序权重
   getCardSortWeight(card) {
     const rankOrder = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
     const suitOrder = ['spade', 'heart', 'club', 'diamond'];
     
-    // 大小王权重最高
     if (card.rank === 'big') return 1000;
     if (card.rank === 'small') return 900;
     
-    // 主花色级牌（如红桃2，红桃是主）
     if (card.rank === this.trumpRank && card.suit === this.trumpSuit) return 800;
-    
-    // 其他级牌（如黑桃2、梅花2、方块2，当主花色是红桃时）
     if (card.rank === this.trumpRank) return 700 + suitOrder.indexOf(card.suit);
     
-    // 主花色牌（非级牌）
     if (this.trumpSuit && card.suit === this.trumpSuit) {
       return 600 + rankOrder.indexOf(card.rank);
     }
     
-    // 无主模式：级牌已经是主，其他都是副牌
-    if (!this.trumpSuit && card.rank === this.trumpRank) {
-      return 800; // 无主时级牌权重
-    }
+    if (!this.trumpSuit && card.rank === this.trumpRank) return 800;
     
-    // 副牌：按花色分组，再按点数
     return suitOrder.indexOf(card.suit) * 20 + rankOrder.indexOf(card.rank);
   }
 
-  // 排序手牌（主牌在前，副牌在后）
+  // 排序手牌
   sortHand(hand) {
     return hand.sort((a, b) => this.getCardSortWeight(b) - this.getCardSortWeight(a));
   }
 
-  // 比较两张牌大小（假设同花色或都是主牌）
+  // 比较两张牌大小
   compareCards(card1, card2) {
     const rankOrder = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
     
     const isTrump1 = this.isTrump(card1);
     const isTrump2 = this.isTrump(card2);
     
-    // 主牌 vs 副牌：主牌大
     if (isTrump1 && !isTrump2) return 1;
     if (!isTrump1 && isTrump2) return -1;
     
-    // 都是主牌
     if (isTrump1 && isTrump2) {
-      // 大小王
       if (card1.rank === 'big') return 1;
       if (card2.rank === 'big') return -1;
       if (card1.rank === 'small') return 1;
       if (card2.rank === 'small') return -1;
       
-      // 主花色级牌最大（如红桃2，红桃是主）
       if (card1.rank === this.trumpRank && card1.suit === this.trumpSuit) return 1;
       if (card2.rank === this.trumpRank && card2.suit === this.trumpSuit) return -1;
       
-      // 其他级牌（无主模式时所有级牌同级，按花色排）
       if (card1.rank === this.trumpRank && card2.rank === this.trumpRank) {
         const suitOrder = ['spade', 'heart', 'club', 'diamond'];
         return suitOrder.indexOf(card1.suit) - suitOrder.indexOf(card2.suit);
@@ -199,20 +232,67 @@ class Game {
       if (card1.rank === this.trumpRank) return 1;
       if (card2.rank === this.trumpRank) return -1;
       
-      // 主花色普通牌，比点数
       const idx1 = rankOrder.indexOf(card1.rank);
       const idx2 = rankOrder.indexOf(card2.rank);
       return idx1 - idx2;
     }
     
-    // 都是副牌：同花色比点数，不同花色不能比（返回0表示无法比较）
     if (card1.suit === card2.suit) {
       const idx1 = rankOrder.indexOf(card1.rank);
       const idx2 = rankOrder.indexOf(card2.rank);
       return idx1 - idx2;
     }
     
-    return 0; // 不同花色副牌，无法直接比较
+    return 0;
+  }
+
+  // 检查是否可以甩牌
+  canShuai(playerId, suit) {
+    const player = this.players[playerId];
+    const suitCards = player.hand.filter(c => c.suit === suit && !this.isTrump(c));
+    
+    // 收集桌面上已出的K/A（含亮明的底牌K/A）
+    const playedKA = { 'K': 0, 'A': 0 };
+    
+    for (let cards of this.playedCards) {
+      for (let c of cards) {
+        if (c.suit === suit && (c.rank === 'K' || c.rank === 'A')) {
+          playedKA[c.rank]++;
+        }
+      }
+    }
+    
+    for (let c of this.kittyRevealed) {
+      if (c.suit === suit && (c.rank === 'K' || c.rank === 'A')) {
+        playedKA[c.rank]++;
+      }
+    }
+    
+    // 级为K时只需两只A
+    if (this.trumpRank === 'K') {
+      const handA = suitCards.filter(c => c.rank === 'A').length;
+      return handA + playedKA['A'] >= 2;
+    }
+    
+    // 级为A时只需两只A
+    if (this.trumpRank === 'A') {
+      const handA = suitCards.filter(c => c.rank === 'A').length;
+      return handA + playedKA['A'] >= 2;
+    }
+    
+    // 普通级别：需要2K+2A
+    const handK = suitCards.filter(c => c.rank === 'K').length;
+    const handA = suitCards.filter(c => c.rank === 'A').length;
+    
+    return (handK + playedKA['K'] >= 2) && (handA + playedKA['A'] >= 2);
+  }
+
+  // 获取某花色可甩的牌
+  getShuaiCards(playerId, suit) {
+    if (!this.canShuai(playerId, suit)) return null;
+    
+    const player = this.players[playerId];
+    return player.hand.filter(c => c.suit === suit && !this.isTrump(c));
   }
 
   // 判断牌型
@@ -223,14 +303,31 @@ class Game {
         return 'PAIR';
       }
     }
-    if (cards.length === 4) {
-      // AAKK甩牌
-      const ranks = cards.map(c => c.rank).sort();
-      if (ranks[0] === 'A' && ranks[1] === 'A' && ranks[2] === 'K' && ranks[3] === 'K') {
-        return 'SHUAI';
+    return 'MULTI';
+  }
+
+  // 检查跟牌规则
+  checkFollowRule(playerId, cards) {
+    if (this.roundCards.length === 0) return true; // 首家随便出
+    
+    const player = this.players[playerId];
+    const firstSuit = this.firstSuit;
+    
+    // 检查是否有首家花色
+    const hasFirstSuit = player.hand.some(c => 
+      !this.isTrump(c) && c.suit === firstSuit
+    );
+    
+    if (hasFirstSuit) {
+      // 有首家花色必须跟
+      for (let card of cards) {
+        if (this.isTrump(card) || card.suit !== firstSuit) {
+          return false; // 有首家花色却没跟
+        }
       }
     }
-    return 'INVALID';
+    
+    return true;
   }
 
   // 出牌
@@ -246,11 +343,10 @@ class Game {
       if (idx === -1) return false;
     }
     
-    // 检查牌型
-    const cardType = this.getCardType(cards);
-    if (cardType === 'INVALID') return false;
-    
-    // TODO: 检查跟牌规则
+    // 检查跟牌规则
+    if (!this.checkFollowRule(playerId, cards)) {
+      return false;
+    }
     
     // 移除手牌
     for (let card of cards) {
@@ -258,10 +354,250 @@ class Game {
       player.hand.splice(idx, 1);
     }
     
+    // 记录出牌
+    this.roundCards.push({ playerId, cards });
+    this.playedCards.push(cards);
+    
+    // 设置首家花色
+    if (this.roundCards.length === 1) {
+      this.firstSuit = cards[0].suit;
+    }
+    
     // 进入下一轮
     this.currentPlayer = (this.currentPlayer + 1) % 4;
     
+    // 一轮结束
+    if (this.roundCards.length === 4) {
+      this.endRound();
+    }
+    
     return true;
+  }
+
+  // 结束一轮
+  endRound() {
+    // 判断赢家
+    const winner = this.determineRoundWinner();
+    const winnerTeam = winner % 2;
+    
+    // 计算本轮得分
+    const roundScore = this.calculateRoundScore();
+    this.scores[winnerTeam] += roundScore;
+    
+    // 检查是否是最后一轮（抠底）
+    const totalCards = this.players.reduce((sum, p) => sum + p.hand.length, 0);
+    if (totalCards === 0) {
+      // 最后一轮
+      if (winnerTeam !== this.dealer % 2) {
+        // 抓分方赢，抠底
+        this.isKouDi = true;
+        const winningCards = this.roundCards.find(r => r.playerId === winner).cards;
+        this.kouDiMultiplier = this.calculateKouDiMultiplier(winningCards);
+        const kittyScore = this.calculateKittyScore();
+        this.scores[winnerTeam] += kittyScore * this.kouDiMultiplier;
+      }
+      
+      this.endGame();
+    } else {
+      // 下一轮由赢家先出
+      this.currentPlayer = winner;
+      this.roundCards = [];
+      this.firstSuit = null;
+    }
+  }
+
+  // 判断一轮赢家
+  determineRoundWinner() {
+    let winner = this.roundCards[0].playerId;
+    let maxCards = this.roundCards[0].cards;
+    
+    for (let i = 1; i < this.roundCards.length; i++) {
+      const { playerId, cards } = this.roundCards[i];
+      
+      // 比较最大牌
+      const max1 = this.getMaxCard(maxCards);
+      const max2 = this.getMaxCard(cards);
+      
+      if (this.compareCards(max2, max1) > 0) {
+        winner = playerId;
+        maxCards = cards;
+      }
+    }
+    
+    return winner;
+  }
+
+  // 获取一手牌中的最大牌
+  getMaxCard(cards) {
+    let max = cards[0];
+    for (let i = 1; i < cards.length; i++) {
+      if (this.compareCards(cards[i], max) > 0) {
+        max = cards[i];
+      }
+    }
+    return max;
+  }
+
+  // 计算一轮得分
+  calculateRoundScore() {
+    let score = 0;
+    for (let { cards } of this.roundCards) {
+      for (let card of cards) {
+        if (card.rank === '5') score += 5;
+        else if (card.rank === '10' || card.rank === 'K') score += 10;
+      }
+    }
+    return score;
+  }
+
+  // 计算底牌得分
+  calculateKittyScore() {
+    let score = 0;
+    for (let card of this.kitty) {
+      if (card.rank === '5') score += 5;
+      else if (card.rank === '10' || card.rank === 'K') score += 10;
+    }
+    return score;
+  }
+
+  // 计算抠底倍数
+  calculateKouDiMultiplier(cards) {
+    const cardType = this.getCardType(cards);
+    
+    if (cardType === 'SINGLE') return 2;
+    if (cardType === 'PAIR') return 4;
+    
+    // 检查拖拉机（连对）
+    if (this.isTractor(cards)) {
+      const pairs = this.countPairs(cards);
+      return Math.pow(2, pairs + 1); // 2对=8×, 3对=16×, etc
+    }
+    
+    // 甩牌按最大牌型
+    return 2;
+  }
+
+  // 检查是否是拖拉机（连对）
+  isTractor(cards) {
+    if (cards.length < 4 || cards.length % 2 !== 0) return false;
+    
+    const rankOrder = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
+    const suit = cards[0].suit;
+    
+    // 所有牌同花色且成对
+    const pairs = {};
+    for (let card of cards) {
+      if (card.suit !== suit) return false;
+      pairs[card.rank] = (pairs[card.rank] || 0) + 1;
+    }
+    
+    const ranks = Object.keys(pairs).sort((a, b) => rankOrder.indexOf(a) - rankOrder.indexOf(b));
+    
+    // 检查是否连续
+    for (let i = 0; i < ranks.length - 1; i++) {
+      if (rankOrder.indexOf(ranks[i + 1]) - rankOrder.indexOf(ranks[i]) !== 1) {
+        return false;
+      }
+    }
+    
+    // 每级都是2张
+    for (let rank of ranks) {
+      if (pairs[rank] !== 2) return false;
+    }
+    
+    return true;
+  }
+
+  // 计算对子数
+  countPairs(cards) {
+    const counts = {};
+    for (let card of cards) {
+      counts[card.rank] = (counts[card.rank] || 0) + 1;
+    }
+    let pairs = 0;
+    for (let rank in counts) {
+      if (counts[rank] >= 2) pairs += Math.floor(counts[rank] / 2);
+    }
+    return pairs;
+  }
+
+  // 结束游戏，计算升级
+  endGame() {
+    this.phase = 'SCORE';
+    
+    const xianjiaTeam = (this.dealer + 1) % 2;
+    const xianjiaScore = this.scores[xianjiaTeam];
+    const zhuangjiaTeam = this.dealer % 2;
+    
+    let result = {
+      xianjiaScore,
+      zhuangjiaScore: this.scores[zhuangjiaTeam],
+      isKouDi: this.isKouDi,
+      kouDiMultiplier: this.kouDiMultiplier,
+      upgradeLevels: 0,
+      nextDealer: null,
+      message: '',
+      gameOver: false
+    };
+    
+    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    
+    if (xianjiaScore >= 80) {
+      // 抓分方上台
+      result.upgradeLevels = 1;
+      
+      // 每多10分升一级
+      const extra = Math.floor((xianjiaScore - 80) / 10);
+      result.upgradeLevels += extra;
+      
+      // 满200分额外+1
+      if (xianjiaScore >= 200) result.upgradeLevels += 1;
+      
+      // 抠底额外+1
+      if (this.isKouDi) result.upgradeLevels += 1;
+      
+      const currentIdx = rankOrder.indexOf(this.level[xianjiaTeam]);
+      const newIdx = Math.min(currentIdx + result.upgradeLevels, rankOrder.length - 1);
+      this.level[xianjiaTeam] = rankOrder[newIdx];
+      
+      // 抓分方下家坐庄
+      result.nextDealer = (this.dealer + 1) % 4;
+      result.message = `抓分方得${xianjiaScore}分，升${result.upgradeLevels}级，打${rankOrder[newIdx]}`;
+      
+      // 检查是否过A
+      if (this.level[xianjiaTeam] === 'A' && currentIdx < rankOrder.length - 1) {
+        result.gameOver = true;
+        result.message += '，恭喜过A获胜！';
+      }
+    } else {
+      // 庄家胜
+      const diff = 80 - xianjiaScore;
+      
+      if (xianjiaScore === 0) {
+        result.upgradeLevels = 3;
+      } else if (diff >= 25) {
+        result.upgradeLevels = Math.floor(diff / 10);
+      } else {
+        result.upgradeLevels = 1;
+      }
+      
+      const currentIdx = rankOrder.indexOf(this.level[zhuangjiaTeam]);
+      const newIdx = Math.min(currentIdx + result.upgradeLevels, rankOrder.length - 1);
+      this.level[zhuangjiaTeam] = rankOrder[newIdx];
+      
+      // 庄家对家接庄
+      result.nextDealer = (this.dealer + 2) % 4;
+      result.message = `庄家防守成功，抓分方仅得${xianjiaScore}分，庄家升${result.upgradeLevels}级，打${rankOrder[newIdx]}`;
+      
+      // 检查是否过A
+      if (this.level[zhuangjiaTeam] === 'A' && currentIdx < rankOrder.length - 1) {
+        result.gameOver = true;
+        result.message += '，恭喜过A获胜！';
+      }
+    }
+    
+    this.gameOver = result.gameOver;
+    return result;
   }
 
   // AI决策
@@ -269,7 +605,6 @@ class Game {
     const player = this.players[playerId];
     if (player.hand.length === 0) return null;
     
-    // 简单AI：出最小的单张
     player.hand.sort((a, b) => this.compareCards(a, b));
     return [player.hand[0]];
   }
@@ -280,45 +615,37 @@ class Game {
     
     const player = this.players[playerId];
     
-    // 检查是否是一对级牌或一对王
     if (cards.length !== 2) return false;
     
     const card1 = cards[0];
     const card2 = cards[1];
     
-    // 必须是对子（同点数同花色）
     if (card1.rank !== card2.rank || card1.suit !== card2.suit) return false;
     
-    // 检查是否是级牌对子或王对子
     const isTrumpPair = card1.rank === this.trumpRank && card1.suit !== 'joker';
     const isJokerPair = card1.suit === 'joker' && card2.suit === 'joker';
     
     if (!isTrumpPair && !isJokerPair) return false;
     
-    // 如果已经扣底，需要把底牌还给原庄家
     if (this.phase === 'DISCARD' && this.dealer !== playerId) {
       const oldDealer = this.players[this.dealer];
       oldDealer.hand = oldDealer.hand.concat(this.kitty);
     }
     
-    // 改变主牌
     if (isJokerPair) {
-      this.trumpSuit = null; // 无主
+      this.trumpSuit = null;
     } else {
       this.trumpSuit = card1.suit;
     }
     
-    // 改变庄家
     this.dealer = playerId;
     
-    // 升级（反一次升一级）
     const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
     const currentIdx = rankOrder.indexOf(this.trumpRank);
     if (currentIdx < rankOrder.length - 1) {
       this.trumpRank = rankOrder[currentIdx + 1];
     }
     
-    // 新庄家拿底牌
     player.hand = player.hand.concat(this.kitty);
     this.kitty = [];
     
@@ -326,115 +653,29 @@ class Game {
     return true;
   }
 
-  // 检查是否是甩牌（AAKK）
-  isShuai(cards) {
-    if (cards.length !== 4) return false;
-    const ranks = cards.map(c => c.rank).sort();
-    return ranks[0] === 'A' && ranks[1] === 'A' && ranks[2] === 'K' && ranks[3] === 'K';
-  }
-
-  // 检查甩牌是否被压（有人有更大的A或K）
-  checkShuaiBeaten(cards, otherHands) {
-    if (!this.isShuai(cards)) return false;
+  // 开始新一局
+  newRound() {
+    if (this.gameOver) return false;
     
-    // 检查其他玩家是否有主牌A或更大的牌
-    for (let hand of otherHands) {
-      for (let card of hand) {
-        if (this.isTrump(card) && this.compareCards(card, cards[0]) > 0) {
-          return true; // 有人能压
-        }
-      }
-    }
-    return false;
-  }
-
-    // 计算一轮得分（扣底不翻倍）
-    calculateRoundScore(playedCards) {
-      let score = 0;
-      for (let cards of playedCards) {
-        for (let card of cards) {
-          if (card.rank === '5') score += 5;
-          else if (card.rank === '10' || card.rank === 'K') score += 10;
-        }
-      }
-      return score;
-    }
-
-    // 计算底牌得分（不翻倍）
-    calculateKittyScore() {
-      let score = 0;
-      for (let card of this.kitty) {
-        if (card.rank === '5') score += 5;
-        else if (card.rank === '10' || card.rank === 'K') score += 10;
-      }
-      return score;
-    }
-
-  // 判断赢家
-  determineWinner(playedCards, firstSuit) {
-    let winner = 0;
-    let maxCard = playedCards[0][0];
+    // 重置状态
+    this.kitty = [];
+    this.trumpSuit = null;
+    this.currentPlayer = 0;
+    this.phase = 'DEAL';
+    this.scores = [0, 0];
+    this.playedCards = [];
+    this.roundCards = [];
+    this.firstSuit = null;
+    this.kittyRevealed = [];
+    this.isKouDi = false;
+    this.kouDiMultiplier = 1;
     
-    for (let i = 1; i < playedCards.length; i++) {
-      const card = playedCards[i][0];
-      // 如果是主牌且当前最大不是主牌，或者都是主牌但更大
-      if (this.isTrump(card) && !this.isTrump(maxCard)) {
-        maxCard = card;
-        winner = i;
-      } else if (this.isTrump(card) === this.isTrump(maxCard)) {
-        if (this.compareCards(card, maxCard) > 0) {
-          maxCard = card;
-          winner = i;
-        }
-      }
+    // 清空手牌
+    for (let player of this.players) {
+      player.hand = [];
     }
     
-    return winner;
-  }
-
-  // 升级规则
-  checkUpgrade(xianjiaScore) {
-    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-    const currentIdx = rankOrder.indexOf(this.trumpRank);
-    
-    if (xianjiaScore < 80) {
-      // 庄家升级
-      if (xianjiaScore < 40) {
-        // 升2级
-        const newIdx = Math.min(currentIdx + 2, rankOrder.length - 1);
-        this.level[this.dealer % 2] = rankOrder[newIdx];
-        return `庄家升2级，打${rankOrder[newIdx]}`;
-      } else if (xianjiaScore === 0) {
-        // 升3级
-        const newIdx = Math.min(currentIdx + 3, rankOrder.length - 1);
-        this.level[this.dealer % 2] = rankOrder[newIdx];
-        return `庄家升3级，打${rankOrder[newIdx]}`;
-      } else {
-        // 升1级
-        const newIdx = Math.min(currentIdx + 1, rankOrder.length - 1);
-        this.level[this.dealer % 2] = rankOrder[newIdx];
-        return `庄家升1级，打${rankOrder[newIdx]}`;
-      }
-    } else {
-      // 闲家上台
-      if (xianjiaScore >= 140) {
-        // 闲家升2级
-        const newIdx = Math.min(currentIdx + 2, rankOrder.length - 1);
-        this.level[(this.dealer + 1) % 2] = rankOrder[newIdx];
-        this.dealer = (this.dealer + 1) % 4;
-        return `闲家升2级，打${rankOrder[newIdx]}`;
-      } else if (xianjiaScore >= 100) {
-        // 闲家升1级
-        const newIdx = Math.min(currentIdx + 1, rankOrder.length - 1);
-        this.level[(this.dealer + 1) % 2] = rankOrder[newIdx];
-        this.dealer = (this.dealer + 1) % 4;
-        return `闲家升1级，打${rankOrder[newIdx]}`;
-      } else {
-        // 平过，换庄不升级
-        this.dealer = (this.dealer + 1) % 4;
-        return '平过，换庄';
-      }
-    }
+    return true;
   }
 }
 
