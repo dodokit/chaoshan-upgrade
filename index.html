@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>潮汕升级</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      height: 100vh;
+    }
+    .title {
+      font-size: 48px;
+      font-weight: bold;
+      color: #ffd700;
+      margin-top: 60px;
+      text-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+    .subtitle {
+      font-size: 16px;
+      color: #aaa;
+      margin-top: 10px;
+      margin-bottom: 60px;
+    }
+    .menu {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-width: 300px;
+      gap: 15px;
+    }
+    .btn {
+      width: 100%;
+      height: 56px;
+      border: none;
+      border-radius: 28px;
+      font-size: 18px;
+      color: white;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:active { opacity: 0.8; }
+    .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .btn-secondary { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .btn-quick { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+    .btn-third { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+    .features {
+      display: flex;
+      justify-content: space-around;
+      width: 100%;
+      max-width: 300px;
+      margin-top: 60px;
+    }
+    .feature {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .feature-icon { font-size: 32px; margin-bottom: 8px; }
+    .feature-text { font-size: 12px; color: #ccc; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">潮汕升级</div>
+    <div class="subtitle">4人扑克 · 两人一队 · 经典潮汕玩法</div>
+    
+    <div class="menu">
+      <button class="btn btn-primary" onclick="createRoom()">🏠 创建房间</button>
+      <button class="btn btn-secondary" onclick="joinRoom()">🚪 加入房间</button>
+      <button class="btn btn-quick" onclick="quickStart()">⚡ 快速开始</button>
+      <button class="btn btn-third" onclick="showRules()">📖 游戏规则</button>
+    </div>
+    
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">🃏</div>
+        <div class="feature-text">双副扑克</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🎯</div>
+        <div class="feature-text">炒地皮</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">💫</div>
+        <div class="feature-text">AAKK甩牌</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function createRoom() {
+      const roomId = Math.floor(100000 + Math.random() * 900000);
+      const password = Math.floor(1000 + Math.random() * 9000);
+      window.location.href = `room.html?isHost=true&roomId=${roomId}&password=${password}`;
+    }
+    
+    function joinRoom() {
+      const roomId = prompt('请输入房间号:');
+      if (!roomId) return;
+      const password = prompt('请输入密码:');
+      if (!password) return;
+      window.location.href = `room.html?isHost=false&roomId=${roomId}&password=${password}`;
+    }
+    
+    function quickStart() {
+      window.location.href = 'game.html?mode=quick';
+    }
+    
+    function showRules() {
+      alert('潮汕升级规则:\n\n1. 4人游戏，两人一队\n2. 2副扑克108张\n3. 叫主反主（炒地皮）\n4. AAKK甩牌\n5. 抠底翻倍\n6. 先过A者胜');
+    }
+  </script>
+</body>
+</html>
