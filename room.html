@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>房间 - 潮汕升级</title>
+  <title>房间 - 汕头升级</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -235,8 +235,8 @@
     
     function inviteFriend() {
       const shareData = {
-        title: `潮汕升级邀请 - 房间号:${roomId}`,
-        text: `快来玩潮汕升级！房间号:${roomId} 密码:${password}`,
+        title: `汕头升级邀请 - 房间号:${roomId}`,
+        text: `快来玩汕头升级！房间号:${roomId} 密码:${password}`,
         url: window.location.href
       };
       
@@ -248,7 +248,7 @@
     }
     
     function copyRoomInfo() {
-      const info = `潮汕升级邀请\n房间号: ${roomId}\n密码: ${password}\n链接: ${window.location.href}`;
+      const info = `汕头升级邀请\n房间号: ${roomId}\n密码: ${password}\n链接: ${window.location.href}`;
       navigator.clipboard.writeText(info).then(() => {
         alert('已复制到剪贴板');
       });
@@ -305,7 +305,7 @@
     }
     
     renderPlayers();
-    addMessage('系统', '欢迎来到潮汕升级！');
+    addMessage('系统', '欢迎来到汕头升级！');
   </script>
 </body>
 </html>

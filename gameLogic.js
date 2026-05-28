@@ -1,4 +1,4 @@
-// 潮汕升级核心游戏逻辑
+// 汕头升级核心游戏逻辑
 
 class Card {
   constructor(suit, rank) {
@@ -80,7 +80,7 @@ class Game {
     return this.players;
   }
 
-  // 叫主
+  // 叫主（亮出级牌，该牌的花色成为主花色）
   bid(playerId, card) {
     if (this.phase !== 'BID') return false;
     
@@ -90,7 +90,10 @@ class Game {
     
     if (!hasCard) return false;
     
-    // 设置主牌
+    // 检查是否是当前级牌
+    if (card.rank !== this.trumpRank) return false;
+    
+    // 设置主牌：该牌的花色成为主花色
     this.trumpSuit = card.suit;
     this.dealer = playerId;
     
@@ -127,32 +130,89 @@ class Game {
   isTrump(card) {
     if (card.suit === 'joker') return true;
     if (card.rank === this.trumpRank) return true;
-    if (card.suit === this.trumpSuit) return true;
+    if (this.trumpSuit && card.suit === this.trumpSuit) return true;
     return false;
+  }
+
+  // 获取牌的排序权重（用于手牌排序显示）
+  getCardSortWeight(card) {
+    const rankOrder = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
+    const suitOrder = ['spade', 'heart', 'club', 'diamond'];
+    
+    // 大小王权重最高
+    if (card.rank === 'big') return 1000;
+    if (card.rank === 'small') return 900;
+    
+    // 主花色级牌（如红桃2，红桃是主）
+    if (card.rank === this.trumpRank && card.suit === this.trumpSuit) return 800;
+    
+    // 其他级牌（如黑桃2、梅花2、方块2，当主花色是红桃时）
+    if (card.rank === this.trumpRank) return 700 + suitOrder.indexOf(card.suit);
+    
+    // 主花色牌（非级牌）
+    if (this.trumpSuit && card.suit === this.trumpSuit) {
+      return 600 + rankOrder.indexOf(card.rank);
+    }
+    
+    // 无主模式：级牌已经是主，其他都是副牌
+    if (!this.trumpSuit && card.rank === this.trumpRank) {
+      return 800; // 无主时级牌权重
+    }
+    
+    // 副牌：按花色分组，再按点数
+    return suitOrder.indexOf(card.suit) * 20 + rankOrder.indexOf(card.rank);
+  }
+
+  // 排序手牌（主牌在前，副牌在后）
+  sortHand(hand) {
+    return hand.sort((a, b) => this.getCardSortWeight(b) - this.getCardSortWeight(a));
   }
 
   // 比较两张牌大小（假设同花色或都是主牌）
   compareCards(card1, card2) {
     const rankOrder = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
     
-    // 大小王最大
-    if (card1.rank === 'big') return 1;
-    if (card2.rank === 'big') return -1;
-    if (card1.rank === 'small') return 1;
-    if (card2.rank === 'small') return -1;
+    const isTrump1 = this.isTrump(card1);
+    const isTrump2 = this.isTrump(card2);
     
-    // 级牌
-    if (card1.rank === this.trumpRank && card1.suit === this.trumpSuit) return 1;
-    if (card2.rank === this.trumpRank && card2.suit === this.trumpSuit) return -1;
+    // 主牌 vs 副牌：主牌大
+    if (isTrump1 && !isTrump2) return 1;
+    if (!isTrump1 && isTrump2) return -1;
     
-    // 主花色
-    if (card1.suit === this.trumpSuit && card2.suit !== this.trumpSuit) return 1;
-    if (card2.suit === this.trumpSuit && card1.suit !== this.trumpSuit) return -1;
+    // 都是主牌
+    if (isTrump1 && isTrump2) {
+      // 大小王
+      if (card1.rank === 'big') return 1;
+      if (card2.rank === 'big') return -1;
+      if (card1.rank === 'small') return 1;
+      if (card2.rank === 'small') return -1;
+      
+      // 主花色级牌最大（如红桃2，红桃是主）
+      if (card1.rank === this.trumpRank && card1.suit === this.trumpSuit) return 1;
+      if (card2.rank === this.trumpRank && card2.suit === this.trumpSuit) return -1;
+      
+      // 其他级牌（无主模式时所有级牌同级，按花色排）
+      if (card1.rank === this.trumpRank && card2.rank === this.trumpRank) {
+        const suitOrder = ['spade', 'heart', 'club', 'diamond'];
+        return suitOrder.indexOf(card1.suit) - suitOrder.indexOf(card2.suit);
+      }
+      if (card1.rank === this.trumpRank) return 1;
+      if (card2.rank === this.trumpRank) return -1;
+      
+      // 主花色普通牌，比点数
+      const idx1 = rankOrder.indexOf(card1.rank);
+      const idx2 = rankOrder.indexOf(card2.rank);
+      return idx1 - idx2;
+    }
     
-    // 比较点数
-    const idx1 = rankOrder.indexOf(card1.rank);
-    const idx2 = rankOrder.indexOf(card2.rank);
-    return idx1 - idx2;
+    // 都是副牌：同花色比点数，不同花色不能比（返回0表示无法比较）
+    if (card1.suit === card2.suit) {
+      const idx1 = rankOrder.indexOf(card1.rank);
+      const idx2 = rankOrder.indexOf(card2.rank);
+      return idx1 - idx2;
+    }
+    
+    return 0; // 不同花色副牌，无法直接比较
   }
 
   // 判断牌型
@@ -226,14 +286,20 @@ class Game {
     const card1 = cards[0];
     const card2 = cards[1];
     
-    // 必须是对子
-    if (card1.rank !== card2.rank) return false;
+    // 必须是对子（同点数同花色）
+    if (card1.rank !== card2.rank || card1.suit !== card2.suit) return false;
     
     // 检查是否是级牌对子或王对子
-    const isTrumpPair = card1.rank === this.trumpRank && card1.suit === card2.suit;
+    const isTrumpPair = card1.rank === this.trumpRank && card1.suit !== 'joker';
     const isJokerPair = card1.suit === 'joker' && card2.suit === 'joker';
     
     if (!isTrumpPair && !isJokerPair) return false;
+    
+    // 如果已经扣底，需要把底牌还给原庄家
+    if (this.phase === 'DISCARD' && this.dealer !== playerId) {
+      const oldDealer = this.players[this.dealer];
+      oldDealer.hand = oldDealer.hand.concat(this.kitty);
+    }
     
     // 改变主牌
     if (isJokerPair) {
@@ -250,14 +316,6 @@ class Game {
     const currentIdx = rankOrder.indexOf(this.trumpRank);
     if (currentIdx < rankOrder.length - 1) {
       this.trumpRank = rankOrder[currentIdx + 1];
-    }
-    
-    // 如果已经扣底，需要重新扣
-    if (this.phase === 'DISCARD') {
-      // 把底牌还给原庄家
-      const oldDealer = this.players[this.dealer];
-      oldDealer.hand = oldDealer.hand.concat(this.kitty);
-      this.kitty = [];
     }
     
     // 新庄家拿底牌
@@ -290,17 +348,27 @@ class Game {
     return false;
   }
 
-  // 计算一轮得分
-  calculateRoundScore(playedCards) {
-    let score = 0;
-    for (let cards of playedCards) {
-      for (let card of cards) {
+    // 计算一轮得分（扣底不翻倍）
+    calculateRoundScore(playedCards) {
+      let score = 0;
+      for (let cards of playedCards) {
+        for (let card of cards) {
+          if (card.rank === '5') score += 5;
+          else if (card.rank === '10' || card.rank === 'K') score += 10;
+        }
+      }
+      return score;
+    }
+
+    // 计算底牌得分（不翻倍）
+    calculateKittyScore() {
+      let score = 0;
+      for (let card of this.kitty) {
         if (card.rank === '5') score += 5;
         else if (card.rank === '10' || card.rank === 'K') score += 10;
       }
+      return score;
     }
-    return score;
-  }
 
   // 判断赢家
   determineWinner(playedCards, firstSuit) {

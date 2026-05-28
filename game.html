@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>游戏 - 潮汕升级</title>
+  <title>游戏 - 汕头升级</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -80,10 +80,11 @@
     }
     .hand {
       display: flex;
-      flex-wrap: wrap;
       justify-content: center;
-      padding: 10px;
-      gap: 6px;
+      padding: 10px 20px;
+      height: 90px;
+      overflow-x: auto;
+      overflow-y: visible;
     }
     .card {
       width: 50px; height: 70px;
@@ -92,21 +93,42 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      font-size: 14px;
       color: #333;
-      border: 2px solid #ccc;
+      border: 1px solid #ccc;
       cursor: pointer;
       user-select: none;
+      margin-left: -25px;
+      transition: transform 0.2s, margin-top 0.2s;
+      position: relative;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
+    .card:first-child { margin-left: 0; }
+    .card:hover { margin-top: -10px; z-index: 10; }
     .card.selected {
       border-color: #ffd700;
-      transform: translateY(-10px);
+      margin-top: -15px;
+      z-index: 20;
+      box-shadow: 0 4px 8px rgba(255,215,0,0.4);
     }
+    .card.trump-card {
+      border-color: #ff6b35;
+      background: linear-gradient(135deg, #fff 0%, #fff8f0 100%);
+    }
+    .card.red-suit { color: #d32f2f; }
+    .card.black-suit { color: #212121; }
     .actions {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
       display: flex;
       justify-content: center;
-      padding: 10px;
       gap: 10px;
+      z-index: 100;
+      background: rgba(0,0,0,0.5);
+      padding: 8px 16px;
+      border-radius: 24px;
     }
     .btn {
       padding: 10px 30px;
@@ -120,10 +142,15 @@
     .btn-pass { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
     .btn-bid { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
     .status {
+      position: fixed;
+      bottom: 10px;
+      left: 0;
+      right: 0;
       text-align: center;
       color: #ffd700;
       font-size: 14px;
       padding: 10px;
+      background: rgba(0,0,0,0.3);
     }
   </style>
 </head>
@@ -235,9 +262,17 @@
     
     function renderHand() {
       const container = document.getElementById('hand');
-      container.innerHTML = game.players[0].hand.map((card, i) => 
-        `<div class="card ${selectedCards.includes(i) ? 'selected' : ''}" onclick="selectCard(${i})" data-index="${i}">${card.toString()}</div>`
-      ).join('');
+      // 排序手牌：主牌在前
+      if (game.trumpSuit || game.trumpRank) {
+        game.players[0].hand = game.sortHand(game.players[0].hand);
+      }
+      container.innerHTML = game.players[0].hand.map((card, i) => {
+        const isTrump = game.isTrump(card);
+        const isRed = card.suit === 'heart' || card.suit === 'diamond';
+        const suitClass = isRed ? 'red-suit' : 'black-suit';
+        const trumpClass = isTrump ? 'trump-card' : '';
+        return `<div class="card ${suitClass} ${trumpClass} ${selectedCards.includes(i) ? 'selected' : ''}" onclick="selectCard(${i})" data-index="${i}">${card.toString()}</div>`;
+      }).join('');
     }
     
     function selectCard(index) {
